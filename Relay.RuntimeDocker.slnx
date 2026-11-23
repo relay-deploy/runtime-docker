@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Relay.RuntimeDocker.Api/Relay.RuntimeDocker.Api.csproj" />
+    <Project Path="src/Relay.RuntimeDocker.Application/Relay.RuntimeDocker.Application.csproj" />
+    <Project Path="src/Relay.RuntimeDocker.Domain/Relay.RuntimeDocker.Domain.csproj" />
+    <Project Path="src/Relay.RuntimeDocker.Infrastructure/Relay.RuntimeDocker.Infrastructure.csproj" />
+  </Folder>
+</Solution>
