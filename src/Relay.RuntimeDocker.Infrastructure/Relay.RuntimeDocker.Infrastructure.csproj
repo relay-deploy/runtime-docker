@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Relay.RuntimeDocker.Application/Relay.RuntimeDocker.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Relay.Chassis" />
+  </ItemGroup>
+</Project>
