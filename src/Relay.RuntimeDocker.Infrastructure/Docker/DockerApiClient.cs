@@ -191,6 +191,45 @@ internal sealed class DockerApiClient(HttpClient http, IOptions<DockerOptions> o
     public Task<Result> RemoveContainer(string id, CancellationToken cancellationToken) =>
         Command(HttpMethod.Delete, $"/containers/{id}?force=true", id, cancellationToken);
 
+    public async Task<Result> WatchEvents(
+        DateTimeOffset since,
+        IReadOnlyDictionary<string, string[]> filters,
+        Action<EventMessage> observe,
+        CancellationToken cancellationToken)
+    {
+        var encoded = Uri.EscapeDataString(JsonSerializer.Serialize(filters, DockerJsonContext.Default.DictionaryStringStringArray));
+        var sent = await Send(HttpMethod.Get, $"/events?since={since.ToUnixTimeSeconds()}&filters={encoded}", null, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        if (sent.IsFailure)
+        {
+            return sent.Error;
+        }
+
+        using var response = sent.Value;
+        if (!response.IsSuccessStatusCode)
+        {
+            return await Failure(response, cancellationToken);
+        }
+
+        try
+        {
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            using var reader = new StreamReader(stream);
+            while (await reader.ReadLineAsync(cancellationToken) is { } line)
+            {
+                if (!string.IsNullOrWhiteSpace(line) && JsonSerializer.Deserialize(line, DockerJsonContext.Default.EventMessage) is { } message)
+                {
+                    observe(message);
+                }
+            }
+        }
+        catch (Exception exception) when (exception is IOException or HttpRequestException)
+        {
+            return DockerErrors.Unavailable(exception.Message);
+        }
+
+        return DockerErrors.EventStreamEnded();
+    }
+
     public async Task<Result> EnsureNetwork(string name, CancellationToken cancellationToken)
     {
         var inspected = await Send(HttpMethod.Get, $"/networks/{Uri.EscapeDataString(name)}", null, HttpCompletionOption.ResponseContentRead, cancellationToken);

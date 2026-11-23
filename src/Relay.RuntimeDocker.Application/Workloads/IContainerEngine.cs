@@ -12,6 +12,8 @@ public interface IContainerEngine
 
     Task<Result<ObservedContainer>> FindContainer(AppId app, CancellationToken cancellationToken);
 
+    Task<Result<ObservedContainer>> ObserveContainer(string id, CancellationToken cancellationToken);
+
     Task<Result<IReadOnlyList<ObservedContainer>>> ListContainers(ProjectId? project, CancellationToken cancellationToken);
 
     Task<Result> EnsureNetwork(string name, CancellationToken cancellationToken);
@@ -26,4 +28,6 @@ public interface IContainerEngine
     Task<Result> StopContainer(ObservedContainer container, CancellationToken cancellationToken);
 
     Task<Result> RemoveContainer(ObservedContainer container, CancellationToken cancellationToken);
+
+    Task<Result> WatchEvents(DateTimeOffset since, Action<ContainerEvent> observe, CancellationToken cancellationToken);
 }

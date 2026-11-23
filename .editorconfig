@@ -51,3 +51,6 @@ dotnet_naming_rule.locals_and_parameters_are_camel_case.symbols = locals_and_par
 dotnet_naming_rule.locals_and_parameters_are_camel_case.style = camel_case
 dotnet_naming_symbols.locals_and_parameters.applicable_kinds = local, parameter, local_function
 dotnet_naming_style.camel_case.capitalization = camel_case
+
+[**/Migrations/*.cs]
+generated_code = true

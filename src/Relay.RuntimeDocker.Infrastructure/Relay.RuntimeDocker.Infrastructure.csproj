@@ -4,6 +4,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="all" />
     <PackageReference Include="Relay.Chassis" />
+    <PackageReference Include="Relay.Chassis.Postgres" />
+    <PackageReference Include="Relay.Contracts" />
   </ItemGroup>
 </Project>
