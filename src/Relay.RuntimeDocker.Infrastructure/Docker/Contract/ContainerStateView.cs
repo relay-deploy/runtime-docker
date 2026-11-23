@@ -5,4 +5,6 @@ internal sealed record ContainerStateView
     public string Status { get; init; } = string.Empty;
 
     public bool OOMKilled { get; init; }
+
+    public int ExitCode { get; init; }
 }

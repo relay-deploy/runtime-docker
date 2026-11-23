@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Extensions.Options;
 using Relay.Chassis.Primitives;
 using Relay.RuntimeDocker.Application.Workloads;
@@ -11,6 +12,13 @@ internal sealed class DockerContainerEngine(DockerApiClient client, IOptions<Doc
     : IContainerEngine
 {
     private const long NanoCpusPerMillicore = 1_000_000;
+
+    private static readonly Dictionary<string, string[]> eventFilters = new()
+    {
+        ["type"] = ["container"],
+        ["label"] = [$"{ContainerLabels.Managed}=true"],
+        ["event"] = ["create", "start", "oom", "die", "stop", "destroy"],
+    };
 
     public string EdgeNetwork => options.Value.EdgeNetwork;
 
@@ -39,7 +47,7 @@ internal sealed class DockerContainerEngine(DockerApiClient client, IOptions<Doc
 
         return ids.Value.Count == 0
             ? WorkloadErrors.NotFound(app)
-            : await Observe(ids.Value[0], cancellationToken);
+            : await ObserveContainer(ids.Value[0], cancellationToken);
     }
 
     public async Task<Result<IReadOnlyList<ObservedContainer>>> ListContainers(
@@ -61,7 +69,7 @@ internal sealed class DockerContainerEngine(DockerApiClient client, IOptions<Doc
         var observed = new List<ObservedContainer>();
         foreach (var id in ids.Value)
         {
-            var container = await Observe(id, cancellationToken);
+            var container = await ObserveContainer(id, cancellationToken);
             if (container.IsFailure)
             {
                 return container.Error;
@@ -94,7 +102,7 @@ internal sealed class DockerContainerEngine(DockerApiClient client, IOptions<Doc
             return started.Error;
         }
 
-        return await Observe(created.Value, cancellationToken);
+        return await ObserveContainer(created.Value, cancellationToken);
     }
 
     public Task<Result> RestartContainer(ObservedContainer container, CancellationToken cancellationToken) =>
@@ -107,6 +115,72 @@ internal sealed class DockerContainerEngine(DockerApiClient client, IOptions<Doc
     {
         var removed = await client.RemoveContainer(container.Id, cancellationToken);
         return removed.IsFailure && removed.Error.Code == "docker.container_not_found" ? Result.Success() : removed;
+    }
+
+    public Task<Result> WatchEvents(DateTimeOffset since, Action<ContainerEvent> observe, CancellationToken cancellationToken) =>
+        client.WatchEvents(
+            since,
+            eventFilters,
+            message =>
+            {
+                if (ToContainerEvent(message) is { } change)
+                {
+                    observe(change);
+                }
+            },
+            cancellationToken);
+
+    public async Task<Result<ObservedContainer>> ObserveContainer(string id, CancellationToken cancellationToken)
+    {
+        var inspected = await client.InspectContainer(id, cancellationToken);
+        if (inspected.IsFailure)
+        {
+            return inspected.Error;
+        }
+
+        var container = inspected.Value;
+        var labels = container.Config.Labels ?? new Dictionary<string, string>();
+        var app = AppId.Parse(labels.GetValueOrDefault(ContainerLabels.AppId));
+        var project = ProjectId.Parse(labels.GetValueOrDefault(ContainerLabels.ProjectId));
+        var release = ReleaseId.Parse(labels.GetValueOrDefault(ContainerLabels.ReleaseId));
+        foreach (var parsed in new Result[] { app, project, release })
+        {
+            if (parsed.IsFailure)
+            {
+                return parsed.Error;
+            }
+        }
+
+        var image = await client.InspectImage(container.Image, cancellationToken);
+        var repository = ImageReference.Create(container.Config.Image, null);
+        var digest = image.IsSuccess
+            ? DigestOf(image.Value, repository.IsSuccess ? repository.Value.Repository : string.Empty)
+            : container.Image;
+        var phase = WorkloadPhases.FromContainerState(container.State.Status, container.State.OOMKilled);
+        var status = new WorkloadStatus(app.Value, release.Value, phase, digest, container.RestartCount, time.GetUtcNow());
+        return new ObservedContainer(container.Id, project.Value, status, new WorkloadExit(container.State.ExitCode, container.State.OOMKilled));
+    }
+
+    private static ContainerEvent? ToContainerEvent(EventMessage message)
+    {
+        ContainerEventKind? kind = message.Action switch
+        {
+            "create" => ContainerEventKind.Created,
+            "start" => ContainerEventKind.Started,
+            "oom" => ContainerEventKind.OutOfMemory,
+            "die" => ContainerEventKind.Died,
+            "stop" => ContainerEventKind.Stopped,
+            "destroy" => ContainerEventKind.Destroyed,
+            _ => null,
+        };
+
+        if (kind is null || string.IsNullOrEmpty(message.Actor.Id))
+        {
+            return null;
+        }
+
+        var exitCode = int.TryParse(message.Actor.Attributes?.GetValueOrDefault("exitCode"), CultureInfo.InvariantCulture, out var code) ? code : 0;
+        return new ContainerEvent(message.Actor.Id, kind.Value, exitCode);
     }
 
     private static string DigestOf(ImageInspectResponse image, string repository)
@@ -166,41 +240,9 @@ internal sealed class DockerContainerEngine(DockerApiClient client, IOptions<Doc
             var route = workload.Spec.Routes[index];
             labels[$"traefik.http.routers.{name}-{index}.rule"] = $"Host(`{route.Host}`)";
             labels[$"traefik.http.routers.{name}-{index}.service"] = $"{name}-{index}";
-            labels[$"traefik.http.services.{name}-{index}.loadbalancer.server.port"] = route.Port.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            labels[$"traefik.http.services.{name}-{index}.loadbalancer.server.port"] = route.Port.ToString(CultureInfo.InvariantCulture);
         }
 
         return labels;
-    }
-
-    private async Task<Result<ObservedContainer>> Observe(string id, CancellationToken cancellationToken)
-    {
-        var inspected = await client.InspectContainer(id, cancellationToken);
-        if (inspected.IsFailure)
-        {
-            return inspected.Error;
-        }
-
-        var container = inspected.Value;
-        var labels = container.Config.Labels ?? new Dictionary<string, string>();
-        var app = AppId.Parse(labels.GetValueOrDefault(ContainerLabels.AppId));
-        var release = ReleaseId.Parse(labels.GetValueOrDefault(ContainerLabels.ReleaseId));
-        if (app.IsFailure)
-        {
-            return app.Error;
-        }
-
-        if (release.IsFailure)
-        {
-            return release.Error;
-        }
-
-        var image = await client.InspectImage(container.Image, cancellationToken);
-        var repository = ImageReference.Create(container.Config.Image, null);
-        var digest = image.IsSuccess
-            ? DigestOf(image.Value, repository.IsSuccess ? repository.Value.Repository : string.Empty)
-            : container.Image;
-        var phase = WorkloadPhases.FromContainerState(container.State.Status, container.State.OOMKilled);
-        var status = new WorkloadStatus(app.Value, release.Value, phase, digest, container.RestartCount, time.GetUtcNow());
-        return new ObservedContainer(container.Id, status);
     }
 }

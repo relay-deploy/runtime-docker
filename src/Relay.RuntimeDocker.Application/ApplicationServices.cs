@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Relay.RuntimeDocker.Application.Lifecycle;
 using Relay.RuntimeDocker.Application.Workloads;
 
 namespace Relay.RuntimeDocker.Application;
@@ -11,5 +12,6 @@ public static class ApplicationServices
         .AddSingleton<StopWorkload>()
         .AddSingleton<RemoveWorkload>()
         .AddSingleton<GetWorkload>()
-        .AddSingleton<ListWorkloads>();
+        .AddSingleton<ListWorkloads>()
+        .AddSingleton<WatchWorkloads>();
 }

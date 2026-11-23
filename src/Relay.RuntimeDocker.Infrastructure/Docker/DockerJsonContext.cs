@@ -6,6 +6,7 @@ namespace Relay.RuntimeDocker.Infrastructure.Docker;
 [JsonSourceGenerationOptions(PropertyNameCaseInsensitive = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(ImageInspectResponse))]
 [JsonSerializable(typeof(PullLine))]
+[JsonSerializable(typeof(EventMessage))]
 [JsonSerializable(typeof(List<ContainerSummary>))]
 [JsonSerializable(typeof(ContainerInspectResponse))]
 [JsonSerializable(typeof(CreateContainerRequest))]
